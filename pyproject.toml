@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amazon-product-recommender"
+version = "0.1.0"
+description = "Gate-controlled local Spark recommendation pipeline for Amazon metadata."
+readme = "README.md"
+requires-python = "==3.13.1"
+dependencies = [
+  "duckdb==1.5.4",
+  "graphframes-py==0.12.1",
+  "networkx==3.5",
+  "numpy==2.3.0",
+  "pandas==2.3.0",
+  "plotly==6.9.0",
+  "psutil==7.0.0",
+  "pyarrow==25.0.0",
+  "pyspark==4.0.0",
+  "PyYAML==6.0.2",
+  "streamlit==1.59.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1", "pytest-cov==7.1.0"]
+
+[project.scripts]
+amazon-rec-python = "amazon_recommender.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "src"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+markers = [
+  "unit: fast isolated tests",
+  "integration: local Spark or filesystem integration tests",
+  "e2e: gate-level end-to-end tests",
+  "slow: resource-intensive contract tests",
+  "full_data: tests that require the canonical 977 MB source",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["amazon_recommender"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

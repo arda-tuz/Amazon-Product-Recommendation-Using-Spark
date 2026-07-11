@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+JAR_DIR="$ROOT/.cache/ivy/jars"
+SPARK_TASK_CPUS=${AMAZON_REC_SPARK_TASK_CPUS:-4}
+SPARK_MEMORY_FRACTION=${AMAZON_REC_SPARK_MEMORY_FRACTION:-0.35}
+
+if [[ -n ${AMAZON_REC_PYTHON:-} ]]; then
+  PYTHON=$AMAZON_REC_PYTHON
+elif command -v pyenv >/dev/null 2>&1; then
+  if ! PYTHON=$(PYENV_VERSION=bil401_env_1 pyenv which python 2>/dev/null); then
+    echo "pyenv environment bil401_env_1 is missing; create it from Python 3.13.1" >&2
+    exit 2
+  fi
+else
+  echo "pyenv is required unless AMAZON_REC_PYTHON points to bil401_env_1" >&2
+  exit 2
+fi
+
+if [[ ! -x "$PYTHON" ]]; then
+  echo "selected bil401_env_1 Python is not executable: $PYTHON" >&2
+  exit 2
+fi
+if ! PYTHON_INFO_OUTPUT=$("$PYTHON" -c \
+  'import os, platform, sys; print(platform.python_version()); print(os.path.abspath(sys.executable)); print(os.path.realpath(sys.prefix))'); then
+  echo "selected Python interpreter could not be inspected: $PYTHON" >&2
+  exit 2
+fi
+mapfile -t PYTHON_INFO <<<"$PYTHON_INFO_OUTPUT"
+if [[ ${#PYTHON_INFO[@]} -ne 3 || ${PYTHON_INFO[0]} != 3.13.1 ]]; then
+  echo "bil401_env_1 requires Python 3.13.1; observed ${PYTHON_INFO[0]:-unknown}" >&2
+  exit 2
+fi
+if [[ $(basename "${PYTHON_INFO[2]}") != bil401_env_1 ]]; then
+  echo "selected Python prefix is not bil401_env_1: ${PYTHON_INFO[2]}" >&2
+  exit 2
+fi
+PYTHON=${PYTHON_INFO[1]}
+if [[ ! -x "$JAVA_HOME/bin/java" ]]; then
+  echo "Java 21 is missing: $JAVA_HOME" >&2
+  exit 2
+fi
+
+JARS=$(find "$JAR_DIR" -maxdepth 1 -type f -name '*.jar' -print0 2>/dev/null | sort -z | tr '\0' ',' | sed 's/,$//')
+if [[ -z "$JARS" ]]; then
+  echo "GraphFrames runtime JARs are missing under $JAR_DIR; run make bootstrap" >&2
+  exit 2
+fi
+
+export AMAZON_REC_ROOT="$ROOT"
+export JAVA_HOME
+export PATH="$JAVA_HOME/bin:$(dirname "$PYTHON"):$PATH"
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYSPARK_PYTHON="$PYTHON"
+export PYSPARK_DRIVER_PYTHON="$PYTHON"
+export SPARK_LOCAL_IP=127.0.0.1
+export PYSPARK_SUBMIT_ARGS="--master local[*] --driver-memory 8g --driver-java-options=-Duser.timezone=UTC --conf spark.driver.host=127.0.0.1 --conf spark.driver.bindAddress=127.0.0.1 --conf spark.driver.maxResultSize=1g --conf spark.ui.enabled=false --conf spark.ui.showConsoleProgress=false --conf spark.task.cpus=$SPARK_TASK_CPUS --conf spark.memory.fraction=$SPARK_MEMORY_FRACTION --conf spark.memory.storageFraction=0.30 --conf spark.sql.shuffle.partitions=64 --conf spark.sql.adaptive.enabled=true --conf spark.sql.files.maxPartitionBytes=134217728 --conf spark.sql.parquet.compression.codec=snappy --conf spark.sql.session.timeZone=UTC --jars $JARS pyspark-shell"
+
+exec "$PYTHON" -m amazon_recommender.cli "$@"

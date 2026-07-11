@@ -1,0 +1,118 @@
+schema_version: 1
+project:
+  name: amazon-product-recommender
+  timezone: UTC
+  seed: 42
+source:
+  path: Dataset/amazon-meta.txt
+  sha256: 600135116a05b7ce2dcb7e842e892d663c6190a0567d00373e0c5c4f3c908f02
+  size_bytes: 977506331
+  line_count: 15010574
+  encoding: UTF-8
+  eol: CRLF
+  record_delimiter_hex: 0d0a0d0a
+paths:
+  artifacts: artifacts
+  ivy_jars: .cache/ivy/jars
+  source_documents: Documents
+runtime:
+  pyenv_name: bil401_env_1
+  python: /home/arda-tuz/.pyenv/versions/bil401_env_1/bin/python
+  java_home: /usr/lib/jvm/java-21-openjdk-amd64
+  graphframes_coordinate: io.graphframes:graphframes-spark4_2.13:0.12.1
+spark:
+  master: local[*]
+  driver_memory: 8g
+  driver_max_result_size: 1g
+  shuffle_partitions: 64
+  adaptive_enabled: true
+  max_partition_bytes: 134217728
+  parquet_compression: snappy
+  session_timezone: UTC
+  checkpoint_interval: 2
+storage:
+  parquet_target_bytes: 134217728
+  fact_min_files: 8
+  fact_max_files: 64
+  dimension_min_files: 1
+  dimension_max_files: 8
+  fallback_shards: 64
+sampling:
+  algorithm: sha256-first16
+  smoke_threshold_exclusive: 328
+  cohort_limit: 20000
+  hash_separator: "\u001f"
+cleaning:
+  exact_review_key: [asin, customer_id, review_date, rating, votes, helpful]
+  positive_rating_min: 4.0
+  avg_rating_rounding: nearest-0.5-half-up
+  expected_avg_mismatches: 487
+split:
+  evaluation_min_distinct_items: 5
+  order: [interaction_date_asc, product_id_asc]
+  validation_position_from_end: 2
+  test_position_from_end: 1
+  test_seen_includes_validation: true
+als_k_core:
+  min_user_items: 3
+  min_item_users: 5
+models:
+  popularity:
+    m: 20
+    group_min_train_interactions: 100
+    global_catalog_depth: 1000
+    candidate_depth: 100
+  als:
+    rank: 20
+    reg_param: 0.10
+    max_iter: 10
+    implicit_prefs: false
+    nonnegative: false
+    cold_start_strategy: drop
+    raw_candidate_depth: 200
+    candidate_depth: 100
+  fp_growth:
+    min_basket_size: 2
+    max_basket_size: 50
+    min_fraction: 0.001
+    min_count: 200
+    min_confidence: 0.05
+    min_lift: 1.10
+    num_partitions: 64
+    max_rules_per_antecedent: 20
+    candidate_depth: 50
+  graph:
+    max_positive_seeds: 20
+    direct_weight: 1.0
+    reciprocal_bonus: 0.25
+    two_hop_weight: 0.50
+    pagerank_reset_probability: 0.15
+    pagerank_max_iter: 10
+    candidate_depth: 50
+  category:
+    similarity_weight: 0.80
+    group_affinity_weight: 0.10
+    popularity_percentile_weight: 0.10
+    max_profile_categories: 20
+    generic_category_ratio: 0.10
+    products_per_category: 200
+    max_candidate_pool: 5000
+    candidate_depth: 50
+hybrid:
+  rrf_c: 60
+  stored_depth: 100
+  h_a: {als: 0.35, graph: 0.20, category: 0.20, fp: 0.15, popularity: 0.10}
+  h_b: {als: 0.50, graph: 0.20, category: 0.10, fp: 0.15, popularity: 0.05}
+  selection_cohort: common_warm
+  ndcg_tie_threshold: 0.001
+  final_tie_break: h_a
+evaluation:
+  k: 10
+  metrics: [ndcg, hit_rate, mrr]
+  coverage: [user_coverage, fill_rate, catalog_coverage]
+  slices: [overall, Book, non-Book]
+performance:
+  masters: ["local[1]", "local[min(4,logical_cores)]"]
+  warmups: 1
+  measured_runs: 3
+  cache_enabled: false

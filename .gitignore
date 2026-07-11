@@ -1,0 +1,50 @@
+# Source data and generated run artifacts
+/Dataset/
+/artifacts/
+/.cache/
+
+# Python build/test state
+__pycache__/
+*.py[cod]
+*.egg-info/
+/.pytest_cache/
+/.coverage
+/coverage.xml
+/htmlcov/
+/build/
+/dist/
+
+# Local tooling
+/.vscode/
+/.idea/
+/.streamlit/secrets.toml
+*.log
+
+# Local environments, credentials and signing material
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Browser automation output
+/.playwright-cli/
+/.playwright-mcp/
+/output/playwright/
+/playwright-report/
+/test-results/
+/blob-report/
+
+# Additional generated/local state
+/.ruff_cache/
+/spark-warehouse/
+/metastore_db/
+/derby.log
+/.DS_Store
+
+# Local presenter guide (contains workstation-specific paths)
+/Documents/amazon-recommender-browser-test-rehberi.docx

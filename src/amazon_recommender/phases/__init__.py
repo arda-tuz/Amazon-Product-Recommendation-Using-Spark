@@ -1,0 +1,1 @@
+"""Strict phase-gate implementations."""
