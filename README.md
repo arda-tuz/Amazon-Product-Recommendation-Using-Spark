@@ -2,11 +2,7 @@
 
 Bu depo, SNAP Amazon ürün meta verisini yerel Apache Spark üzerinde işleyen,
 zamansal olarak ayrılmış öneri adayları üreten ve beş bağımsız model ile iki
-önceden tanımlı hibriti karşılaştıran BİL401 dönem projesidir. Uygulamanın
-bağlayıcı teori ve veri sözleşmesi
-[`Documents/project-implementation-details.md`](Documents/project-implementation-details.md),
-veri kümesinin doğrulanmış fiziksel açıklaması ise
-[`Documents/dataset-description.md`](Documents/dataset-description.md) içindedir.
+önceden tanımlı hibriti karşılaştıran BİL401 dönem projesidir.
 
 ## Veri kaynağı ve yorum sayılarının anlamı
 
@@ -25,11 +21,6 @@ metriği ifade etmez. `reviews_raw` fiziksel yorumları korur;
 `reviews_deduplicated` tam anahtar tekilleştirmesinden sonraki tablo,
 `user_item_interactions` ise kullanıcı-ürün-gün birleşiminden sonraki modelleme
 tablosudur. Resmî sayımlar G4 ve G5 manifestolarından okunmalıdır.
-
-G12 kabul profili yalnız yukarıdaki kilitli SHA-256 ve ona ait sert sayımlar için
-geçerlidir. Farklı bir veri sürümünde yalnız `configs/project.yaml` değiştirmek
-yeterli değildir: yeni sert sayım profili bağlayıcı şartnamede onaylanmalı, G0–G12
-yeni koşum kimliğiyle yeniden çalıştırılmalı ve eski manifestolar kullanılmamalıdır.
 
 ## Kilitli çalışma ortamı
 
@@ -92,10 +83,7 @@ başlamaz.
 G0 ortam kanıtı ile başarılı G4–G6 tam-veri kapıları; 12 mantıksal çekirdek,
 yaklaşık 16 GiB fiziksel RAM ve 8 GiB Spark sürücü heap'i olan yerel makinede
 çalıştırılmıştır. Büyük shuffle aşamalarında tarayıcı, Docker sanal makinesi veya
-başka JVM'ler bellek baskısı yaratabilir. Model parametreleri değiştirilmeden
-kullanılan operasyonel bellek kararları `Documents/implementation-decisions.md`
-içinde kayıtlıdır. G7–G12 için tamamlanma iddiası yalnız ilgili `passed`
-manifestoları oluştuğunda geçerlidir.
+başka JVM'ler bellek baskısı yaratabilir.
 
 Kaynak yaklaşık 1 GiB'dir; geliştirme sırasındaki bir G7 ara-çıktı ölçümünde
 kanonik ve geçici artefaktlar birlikte yaklaşık 5 GiB düzeyine ulaşmıştır. Ölçüm,
@@ -177,7 +165,7 @@ STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 ```
 
 Bu komut `http://127.0.0.1:8501` adresindeki uzun ömürlü Streamlit sunucusunu
-**foreground** olarak çalıştırır; terminalin donması değildir. Sunucuyu ayrı bir
+**foreground** olarak çalıştırır. Sunucuyu ayrı bir
 terminal/PTY oturumunda açık bırakın ve yalnız işiniz bittiğinde aynı oturumda
 `Ctrl-C` ile kapatın. Geniş kapsamlı `pkill` kullanmayın; eğitim veya başka
 kullanıcı süreçlerini yanlışlıkla sonlandırabilir.
@@ -252,23 +240,11 @@ fingerprinti doğrulanmış Parquet ve G9 manifestosu esastır.
 
 - Veri 2006 tarihli Amazon meta verisidir; güncel ürün kataloğu veya çevrim içi
   kullanıcı davranışı değildir.
-- Değerlendirme yalnız en az beş farklı etkileşimi olan kullanıcıların zamansal
-  hedeflerinden oluşur. Common-warm ve operational kohort sonuçları birbirine
-  karıştırılmamalıdır.
 - Common-warm, modellerin çıktı verip vermemesine bakılarak sonradan seçilmez;
   ALS eğitim evreni ve train geçmişiyle önceden tanımlanır.
-- Bağımsız modellerin eksik listeleri popülerlik ile doldurulmaz. Bu nedenle
-  kapsam farkları gerçek model davranışıdır.
 - ALS RMSE/MAE yalnız ham, kırpılmamış ve cold-start sonrası tahmini bulunan
   puanlara aittir; diğer modeller için bu metrikler tanımlı değildir.
 - G11 yatay ölçekleme deneyi değildir. Aynı iş yükünde `local[1]` ile
   `local[min(4, mantıksal çekirdek)]` yerel paralelliğini karşılaştırır; koşul
   başına bir ısınma ve üç ölçümün medyanını raporlar.
-- Bir manifest eksikse, fingerprint uyuşmazsa, kaynak değişmişse veya G12
-  başarılı değilse final metrikler yayımlanmış kabul edilmez.
 
-## Lisans ve kaynak gösterimi
-
-Bu depo bir ders projesi uygulamasıdır. Veri kümesinin kullanım ve atıf koşulları
-SNAP Amazon meta veri sayfasından kontrol edilmelidir. Kod, veri dosyasının
-lisansını değiştirmez veya veri içeriğini yeniden lisanslamaz.
