@@ -1,0 +1,34 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": {"text": "Hybrid weights per model", "anchor": "start"},
+  "width": 752,
+  "height": 230,
+  "data": {"values": [
+    {"model": "ALS", "variant": "H-A (balanced)", "weight": 0.35},
+    {"model": "ALS", "variant": "H-B (behavior-weighted)", "weight": 0.50},
+    {"model": "Graph", "variant": "H-A (balanced)", "weight": 0.20},
+    {"model": "Graph", "variant": "H-B (behavior-weighted)", "weight": 0.20},
+    {"model": "Category", "variant": "H-A (balanced)", "weight": 0.20},
+    {"model": "Category", "variant": "H-B (behavior-weighted)", "weight": 0.10},
+    {"model": "FP-Growth", "variant": "H-A (balanced)", "weight": 0.15},
+    {"model": "FP-Growth", "variant": "H-B (behavior-weighted)", "weight": 0.15},
+    {"model": "Popularity", "variant": "H-A (balanced)", "weight": 0.10},
+    {"model": "Popularity", "variant": "H-B (behavior-weighted)", "weight": 0.05}
+  ]},
+  "encoding": {
+    "y": {"field": "model", "type": "nominal", "title": null,
+          "sort": ["ALS", "Graph", "Category", "FP-Growth", "Popularity"]},
+    "yOffset": {"field": "variant", "type": "nominal"},
+    "x": {"field": "weight", "type": "quantitative", "title": "Hybrid weight",
+          "scale": {"domain": [0, 0.6]},
+          "axis": {"values": [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6], "format": ".1f", "grid": false}},
+    "color": {"field": "variant", "type": "nominal", "title": null,
+              "legend": {"orient": "top", "anchor": "start"},
+              "scale": {"domain": ["H-A (balanced)", "H-B (behavior-weighted)"], "range": ["@strong", "@teal"]}}
+  },
+  "layer": [
+    {"mark": {"type": "bar", "cornerRadiusEnd": 3}},
+    {"mark": {"type": "text", "align": "left", "dx": 4, "baseline": "middle"},
+     "encoding": {"text": {"field": "weight", "type": "quantitative", "format": ".2f"}, "color": {"value": "@muted"}}}
+  ]
+}

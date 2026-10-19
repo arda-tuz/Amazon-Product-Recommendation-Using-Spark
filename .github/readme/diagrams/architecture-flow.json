@@ -1,0 +1,35 @@
+{
+  "rows": [
+    {"chain": true, "nodes": [
+      {"id": "src", "title": "SNAP source", "sub": "amazon-meta.txt, 977.5 MB", "kind": "muted"},
+      {"id": "ingest", "title": "Spark ingestion", "sub": "framing, strict parser"}
+    ]},
+    {"id": "lake", "frame": "G4-G6 · Bronze / Silver / Gold", "chain": true, "nodes": [
+      {"id": "bronze", "title": "Bronze", "sub": "raw + quarantine"},
+      {"id": "silver", "title": "Silver", "sub": "typed, profiled"},
+      {"id": "gold", "title": "Gold", "sub": "split, features"}
+    ]},
+    {"id": "models", "frame": "G7 · five recommenders", "nodes": [
+      {"id": "pop", "title": "Popularity", "sub": "Bayesian mean"},
+      {"id": "als", "title": "ALS", "sub": "matrix factors"},
+      {"id": "fp", "title": "FP-Growth", "sub": "basket rules"},
+      {"id": "graph", "title": "Graph", "sub": "1- and 2-hop"},
+      {"id": "cat", "title": "Category", "sub": "cosine, affinity"}
+    ]},
+    {"chain": true, "nodes": [
+      {"id": "fusion", "title": "Hybrid fusion", "sub": "G8 · H-A, H-B weighted RRF", "kind": "focal"},
+      {"id": "eval", "title": "Evaluation", "sub": "G9 · validation, then test"}
+    ]},
+    {"id": "serving", "frame": "G10 · serving contract", "chain": true, "nodes": [
+      {"id": "exports", "title": "Dashboard exports", "sub": "compact Parquet tables"},
+      {"id": "duck", "title": "DuckDB", "sub": "bounded, read-only SQL"},
+      {"id": "app", "title": "Streamlit", "sub": "four pages, Spark-free"}
+    ]}
+  ],
+  "edges": [
+    ["ingest", "@lake", "parsed records"],
+    ["gold", "@models", "train split"],
+    ["@models", "fusion", "5 frozen lists"],
+    ["eval", "@serving", "run artifacts"]
+  ]
+}

@@ -1,377 +1,316 @@
-# Amazon Product Recommendation Using Spark
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/assets/hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/readme/assets/hero-light.svg">
+  <img alt="Spark pipeline: 548,552 Amazon products, five recommenders and two hybrid rankings (H-A and H-B), one chosen on validation." src=".github/readme/assets/hero-light.svg" width="100%">
+</picture>
 
-[![Python 3.13.1](https://img.shields.io/badge/Python-3.13.1-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Apache Spark 4.0.0](https://img.shields.io/badge/Apache%20Spark-4.0.0-E25A1C?logo=apachespark&logoColor=white)](https://spark.apache.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-2EA44F.svg)](LICENSE)
+<p align="center">
+  <a href="https://snap.stanford.edu/data/amazon-meta.html">SNAP dataset</a> &middot;
+  <a href="#quickstart">Quickstart</a> &middot;
+  <a href="#testing-and-verification">Testing</a> &middot;
+  <a href="#license">License</a>
+</p>
 
-**A gate-controlled recommendation platform that turns 548,552 Amazon product
-records into auditable multi-model rankings and an interactive analytics
-experience.**
+<p align="center"><code>Python 3.13.1 · Apache Spark 4.0.0 · GraphFrames 0.12.1 · MIT</code></p>
 
-This project is an end-to-end big-data recommendation system built around the
-[Stanford SNAP Amazon product metadata dataset](https://snap.stanford.edu/data/amazon-meta.html).
-It does more than train a single recommender: it parses a nearly 1 GiB irregular
-text source with Apache Spark, builds source-faithful Bronze/Silver/Gold data
-products, trains five complementary recommendation models, combines their
-rankings through deterministic reciprocal rank fusion, evaluates them without
-temporal leakage, and publishes the results to a four-page Streamlit application.
+This project turns the SNAP `amazon-meta.txt` file into a controlled recommendation experiment. Apache Spark parses it into typed Bronze, Silver and Gold tables, five recommenders are trained and compared under one leakage-safe temporal protocol, and each stage must pass a fingerprinted gate before the next one can run.
 
-The result is a completed, reproducible system designed to make every important
-claim traceable to data, configuration, tests, or a fingerprinted run artifact.
+The source is a 977.5 MB text file with blank-line delimited records, and some titles span physical lines. It combines product metadata, directed similar-product links, category hierarchies and historical ratings. Records are nested, discontinued products use a shorter record shape, and category labels carry bracketed ids. Malformed blocks must be kept and explained rather than silently discarded.
 
-## Project Overview
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/assets/scale-stats-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/readme/assets/scale-stats-light.svg">
+  <img alt="Four counts asserted by the G4 and G5 gates: 548,552 product records, 7.59M physical reviews, 1.56M distinct customers and 1.23M similar-product edges with both ends in the catalog." src=".github/readme/assets/scale-stats-light.svg" width="100%">
+</picture>
 
-The source dataset combines product metadata, directed similar-product
-relationships, category hierarchies, and historical ratings in blank-line
-delimited records. That format creates a harder engineering problem than loading
-a conventional CSV: records are nested, some titles span physical lines,
-discontinued products have a different shape, category labels can contain
-brackets, and malformed blocks must be explained rather than silently discarded.
+These are the counts that the G4 and G5 gates assert: expected values in the code, not outputs of a stored run, because run artifacts are git-ignored.
 
-The pipeline turns that source into a recommendation experiment with three
-goals:
+<details>
+<summary>Contents</summary>
 
-- preserve raw evidence while producing typed, model-ready tables;
-- compare structurally different recommenders under one leakage-safe protocol;
-- make the resulting data quality, graph structure, rankings, and performance
-  evidence explorable without starting Spark from the user interface.
+- [Highlights](#highlights)
+- [Architecture](#architecture)
+- [Quickstart](#quickstart)
+- [Testing and verification](#testing-and-verification)
+- [Scope and limitations](#scope-and-limitations)
+- [License](#license)
 
-Two review counts are deliberately kept distinct. Product headers report
-`7.781.990` total reviews, while the downloaded source contains `7.593.244`
-physical review rows. Models begin from the physical rows; the larger declared
-count remains a data-quality signal rather than being substituted into the
-interaction table.
+</details>
 
-## Technical Highlights
+## Highlights
 
-### Source-aware distributed ingestion
+- **Source-faithful ingestion** - Hadoop `TextInputFormat` splits the file on its blank-line record delimiter (CRLF CRLF), and malformed blocks go to quarantine with the error code, raw block, source offset, path and error detail.
+- **Five complementary recommenders** - popularity, ALS, FP-Growth, graph and category models are trained from training data only, under one temporal split.
+- **Deterministic hybrid ranking** - weighted reciprocal rank fusion with `c = 60` combines two weight sets, H-A and H-B. The winner is chosen on validation data only: higher NDCG@10 when the gap is at least 0.001, otherwise higher user coverage, otherwise H-A.
+- **Thirteen gates with manifests** - each passed gate writes a JSON manifest with SHA-256 fingerprints, and a later gate is blocked by missing, failed or mismatched evidence.
+- **Spark-free serving** - Streamlit reads run exports through DuckDB with 2 threads and a 384 MB memory limit, accepts read-only queries (`SELECT`, `WITH` or `DESCRIBE SELECT`) with bound parameters, and never imports PySpark.
+- **Audited data quality** - a fixed taxonomy of 18 event types. 146,745 duplicate review occurrences are removed and reconciled, and 500 invalid sales ranks are counted as 459 plus 41.
 
-The ingestion layer detects the physical record delimiter, preserves byte
-offsets and block-level SHA-256 hashes, and parses records with explicit Spark
-schemas. Structurally invalid blocks are routed to quarantine with an error code,
-raw evidence, and source location. Valid but unusual domain values remain in the
-data with quality events, keeping structural failure separate from business-data
-anomalies.
+## Architecture
 
-### Five complementary recommendation models
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/assets/architecture-flow-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/readme/assets/architecture-flow-light.svg">
+  <img alt="Architecture: Spark ingestion, Bronze, Silver and Gold tables, five recommenders, H-A and H-B fusion, evaluation, then DuckDB and the Streamlit app." src=".github/readme/assets/architecture-flow-light.svg" width="100%">
+</picture>
 
-The system trains five independent candidate generators from the same
-training-only evidence:
+<p align="center"><a href=".github/readme/assets/architecture-flow-light.svg">Open the full-size diagram</a></p>
 
-1. **Bayesian popularity** reduces the impact of small-sample rating averages.
-2. **Explicit-feedback ALS** learns latent user and item factors from ratings.
-3. **FP-Growth** turns sets of positively rated products into association rules.
-4. **Graph recommendations** score one-hop, reciprocal, and two-hop paths in the
-   directed product-similarity graph.
-5. **Category recommendations** combine category-vector cosine similarity,
-   user group affinity, and Bayesian popularity.
+Spark runs the expensive work before the application starts. Streamlit reads completed, run-scoped Parquet exports through DuckDB, so a page load, search or filter never starts a distributed job. The application serves only run directories that have a Spark `_SUCCESS` marker, and it never imports PySpark. NetworkX draws only deterministic ego layouts of at most 50 nodes; full graph analytics stay in GraphFrames.
 
-These models represent collaborative, associative, structural, content, and
-baseline signals without forcing their incompatible raw score scales into one
-numeric space.
+The design keeps raw evidence next to typed tables, compares structurally different recommenders under one leakage-safe protocol, and makes every result explorable without starting Spark from the user interface.
 
-### Deterministic hybrid rank fusion
+### Five recommenders
 
-The hybrid layer combines one-based model ranks using weighted reciprocal rank
-fusion with `c = 60`. Only two approved configurations are materialized:
+The five models are independent candidate generators. Each produces its own ranked list, so raw scores on different scales never have to be compared directly.
 
-| Variant | ALS | Graph | Category | FP-Growth | Popularity |
-|---|---:|---:|---:|---:|---:|
-| H-A — balanced | 0.35 | 0.20 | 0.20 | 0.15 | 0.10 |
-| H-B — behavior-weighted | 0.50 | 0.20 | 0.10 | 0.15 | 0.05 |
+| Model | Signal and candidates per user |
+|---|---|
+| Bayesian popularity | Weighted rating over the unique raters of each item. 100 candidates |
+| ALS | Explicit-feedback latent factors: rank 20, regularization 0.10, 10 iterations, cold start dropped. 100 candidates (raw depth 200) |
+| FP-Growth | Association rules from baskets of ratings of at least 4.0. 50 candidates |
+| Graph | One-hop, reciprocal and two-hop paths in the similar-product graph. 50 candidates |
+| Category | Blend of category-vector cosine (0.80), user group affinity (0.10) and popularity percentile (0.10). 50 candidates |
 
-Weights are renormalized over the models that produced evidence for a user.
-Final ordering uses hybrid score, contributing-model count, Bayesian score, and
-product identifier as a deterministic tie-break chain. Contributions are folded
-in canonical model order so distributed floating-point aggregation cannot change
-top-K membership at ranking boundaries.
+The Bayesian popularity score is `(n * item mean + 20 * global mean) / (n + 20)`, where `n` counts the unique raters of the item.
 
-### Evidence-driven execution
+ALS and FP-Growth run on Spark MLlib, and graph analytics run on GraphFrames. Every model is fed from training data only. Candidates exclude items the user has already seen at that stage, and discontinued or out-of-catalog products.
 
-The application is controlled by thirteen ordered gates. Every successful gate
-produces a canonical JSON manifest containing the run identity, source and
-configuration fingerprints, prerequisite evidence digests, output metadata, and
-timing. A later gate cannot run against missing, failed, or fingerprint-mismatched
-evidence.
+### Parsing and reconciliation
 
-Parquet tables are written to temporary directories, read back for verification,
-and atomically renamed into place. Completed outputs can be reused after an
-interruption, while incomplete temporary publications are removed without
-touching successful work.
+Records are separated by a blank line (CRLF CRLF). The primary path reads them with Hadoop `TextInputFormat` and a 128 MiB split maximum, and an integration test covers split boundaries at that size. The fallback framer writes 64 integrity-checked JSONL shards, and each framed block stores its SHA-256. Blocks that fail parsing go to quarantine with the error code, raw block, source offset, source path and error detail. Quality events follow a fixed taxonomy of 18 types, including `PARSE_ERROR` and `MULTILINE_TITLE`. Valid but unusual values stay in the data and appear as quality events, separate from structural failures.
 
-### Spark-free interactive serving
+Product headers declare 7.781.990 reviews, while the downloaded source contains 7.593.244 physical review rows. Models start from the physical rows, and the declared total remains a data-quality signal.
 
-Spark performs expensive computation before the application starts. Streamlit
-then reads completed run-scoped Parquet exports through an in-memory DuckDB
-connection configured for two threads and a 384 MB memory limit. The presentation
-layer accepts read-only queries, parameterizes user input, caps detail result
-sizes, and serves only directories with Spark `_SUCCESS` markers.
+<details>
+<summary>Reconciliation counts</summary>
 
-This separation keeps the dashboard responsive and prevents a search, filter, or
-page load from launching a new distributed job.
-
-## System Architecture
-
-```mermaid
-flowchart LR
-    A["SNAP amazon-meta.txt<br/>fingerprint-locked source"] --> B["Distributed ingestion<br/>record framing + strict parser"]
-    B --> C["Bronze<br/>nested source records + quarantine"]
-    C --> D["Silver<br/>typed relations + quality profile"]
-    D --> E["Gold<br/>temporal split + model features"]
-    E --> F["Five independent recommenders<br/>Popularity · ALS · FP · Graph · Category"]
-    F --> G["Hybrid ranking<br/>H-A + H-B weighted RRF"]
-    G --> H["Evaluation<br/>validation freeze + official test"]
-    H --> I["G10 serving exports<br/>compact Parquet tables"]
-    I --> J["DuckDB<br/>bounded read-only queries"]
-    J --> K["Streamlit<br/>four-page analytics application"]
-
-    L["G0–G12 gate controller<br/>manifests + SHA-256 evidence"] -.-> B
-    L -.-> E
-    L -.-> F
-    L -.-> H
-    L -.-> I
-```
-
-### End-to-end flow
-
-1. The raw file is fingerprinted, delimiter-framed, and parsed once into a
-   resumable Bronze envelope.
-2. Silver transformations normalize products, reviews, customers, category
-   relations, graph edges, and data-quality events without overwriting raw facts.
-3. User-product interactions are deduplicated and aggregated before a
-   chronological train/validation/test split is created.
-4. Five recommenders generate stage-aware candidates after excluding seen,
-   discontinued, and out-of-catalog products.
-5. H-A and H-B reuse the same frozen candidate evidence. The winner is selected
-   from validation `common_warm` overall NDCG@10, then coverage, then the fixed
-   H-A tie-break—before official test results are materialized.
-6. Evaluation produces ranking, coverage, ALS prediction, runtime, and slice
-   summaries; G10 derives compact dashboard-facing tables.
-7. DuckDB and Streamlit expose the completed run, while G12 independently
-   verifies the manifest chain and publishes the delivery bundle.
-
-## Engineering Deep Dives
-
-### 1. Parsing irregular metadata without losing evidence
-
-The source is not treated as line-oriented CSV. The primary path uses Hadoop's
-record delimiter support so large product blocks can cross normal split
-boundaries and still be emitted exactly once. The fallback framer streams bytes
-into 64 integrity-checked JSONL shards instead of loading the source into driver
-memory.
-
-Each parsed product retains its original source offset and block digest. The
-parser understands active and discontinued record shapes, validates declared
-list and review counts, preserves observed multiline titles, and handles category
-segments by their terminal numeric identifiers. Failures become explicit
-quarantine records rather than partially populated products.
-
-The quality layer then reconciles source summaries with physical observations,
-profiles duplicate reviews, tracks orphan graph targets, and emits a fixed
-taxonomy of auditable events. This makes data cleaning inspectable and prevents
-parser defects from being hidden inside aggregate model behavior.
-
-### 2. Leakage-safe modeling and evaluation
-
-Repeated physical reviews are removed before customer-product observations are
-aggregated. For evaluation-eligible users, interactions are ordered by date and
-product identifier: the penultimate interaction becomes validation, the latest
-becomes test, and all earlier observations remain in training. The test seen-set
-includes the validation item, but the model profile does not.
-
-ALS receives a deterministic iterative k-core training universe. Popularity,
-FP-Growth baskets, graph seeds, category profiles, and Bayesian tie scores are
-all derived from training data only. Evaluation keeps users with empty
-recommendation lists in the denominator, so coverage loss cannot be disguised as
-ranking success.
-
-Ranking quality is reported with NDCG@10, HitRate@10, and MRR@10. User coverage,
-fill rate, and catalog coverage expose different failure modes, while RMSE and
-MAE remain specific to raw, unclipped ALS predictions. The same frozen outputs
-are also analyzed across overall, Book, and non-Book slices.
-
-### 3. Reproducibility and interruption safety
-
-`configs/project.yaml` locks source identity, random seed, Spark settings, split
-rules, model parameters, candidate budgets, hybrid weights, evaluation metrics,
-and the performance protocol. Configuration loading rejects changes to binding
-values rather than silently creating a different experiment under the same run
-identity.
-
-Every table publication records row count, schema, file count, byte size, and
-content fingerprint. Model and phase workspaces are signed by the implementation
-and configuration, allowing completed stages to be reused only when their
-contract matches. G12 recomputes prior manifest and artifact fingerprints,
-reconstructs the frozen hybrid selection, verifies the official comparison
-matrix, and writes the final success marker last.
-
-### 4. Bounded analytics for a large local dataset
-
-The dashboard never imports PySpark. A traversal-safe run catalog exposes only
-allowlisted logical tables inside a selected immutable run directory. DuckDB
-queries are SELECT-only, user search text is parameterized, and public reads have
-hard row caps.
-
-The four pages provide distinct views of the same evidence:
-
-- **Catalog Observatory** — scale, distributions, sparsity, and quality events;
-- **Product and Graph Explorer** — product metadata, taxonomy, PageRank, degree,
-  weak component, and a bounded first-degree graph;
-- **Recommendation Lab** — customer, seed-product, and category-onboarding
-  recommendation exploration with evidence-based explanations;
-- **Model and Experiment Comparison** — ranking metrics, coverage, ALS prediction
-  metrics, model runtimes, local Spark performance, and reproducibility metadata.
-
-NetworkX is restricted to deterministic layouts of at most 50 nodes; full graph
-analytics remain distributed in GraphFrames and Spark SQL.
-
-## Technology Stack
-
-| Layer / Area | Technology | Role in the Project |
+| Count | Value | Asserted by |
 |---|---|---|
-| Language and runtime | Python 3.13.1, Java 21.0.11, Scala 2.13.16 | Python application logic with the JVM/Scala runtime required by Spark |
-| Distributed processing | Apache Spark 4.0.0, PySpark, Spark SQL | Parsing, transformation, feature engineering, candidate generation, and evaluation |
-| Machine learning | Spark MLlib | Explicit-feedback ALS and FP-Growth training |
-| Graph analytics | GraphFrames 0.12.1 | PageRank, degree, reciprocity, and weakly connected components |
-| Analytical storage | Parquet, Snappy, PyArrow 25.0.0 | Typed, compressed, fingerprinted Bronze/Silver/Gold artifacts |
-| Query layer | DuckDB 1.5.4 | Bounded read-only queries over completed Parquet exports |
-| Application UI | Streamlit 1.59.1, Plotly 6.9.0 | Four-page interactive analytics and visualization |
-| Local presentation helpers | pandas 2.3.0, NetworkX 3.5 | Bounded result shaping and small deterministic ego-graph layouts |
-| Testing | pytest 9.1.1, pytest-cov 7.1.0 | Unit, Spark integration, contract, and delivery validation |
-| Configuration and automation | YAML, JSON, Make, Bash | Immutable configuration, evidence manifests, repeatable commands, and environment enforcement |
+| Products | 548,552 = 542,684 active + 5,868 discontinued | G4, G5, G12 |
+| Physical review rows | 7,593,244 | G4, G5 |
+| Duplicate review occurrences removed | 146,745 | G5 |
+| Deduplicated reviews | 7,446,499 = 7,593,244 - 146,745 | G5 |
+| Products whose declared review total differs from the downloaded count | 8,615 above, 131 below | G5 |
+| Products with zero declared review total | 139,949 | G5 |
+| Invalid sales ranks | 500 = 459 at -1 plus 41 at 0 | G5 |
+| Orphan graph targets | 172,790 ASINs referenced 557,286 times | G5 |
 
-## Gate-Controlled Pipeline
+</details>
+
+### Leakage-safe split and evaluation
+
+| Set | Rule |
+|---|---|
+| Train | All earlier interactions |
+| Validation | Penultimate interaction, position 2 from the end |
+| Test | Latest interaction, position 1 from the end |
+
+Interactions are ordered by interaction date and then product id. A user is evaluation-eligible with at least 5 distinct items. The test seen-set includes the validation item, while the model profile does not. ALS trains on a k-core universe of users with at least 3 items and items with at least 5 users.
+
+Ranking uses NDCG@10, HitRate@10 and MRR@10. Coverage is reported as user coverage, fill rate at 10 and catalog coverage at 10. Users with empty recommendation lists stay in the denominator, so coverage loss cannot inflate ranking success. RMSE and MAE use raw, unclipped ALS predictions. Slices are overall, Book and non-Book, and no model is rerun per slice.
+
+### Hybrid rank fusion
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/assets/hybrid-weights-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/readme/assets/hybrid-weights-light.svg">
+  <img alt="Grouped horizontal bars of the hybrid rank-fusion weights for H-A and H-B: ALS 0.35 and 0.50, graph 0.20 and 0.20, category 0.20 and 0.10, FP-Growth 0.15 and 0.15, popularity 0.10 and 0.05; each variant sums to 1.00." src=".github/readme/assets/hybrid-weights-light.svg" width="100%">
+</picture>
+
+Each model adds its normalized weight divided by `60 + rank`, where `rank` is one-based and `c = 60`. Weights are renormalized over the models that produced candidates for each user, and contributions are folded in sorted model order. The fused list is ordered by hybrid score, contributing-model count, Bayesian score and ascending product id, and the top 100 are kept.
+
+The winner is chosen from validation data only, on the `common_warm` cohort. The higher NDCG@10 wins when the gap is at least 0.001. Otherwise the higher user coverage wins, and otherwise H-A. The config loader rejects any weight set that does not sum to 1.
+
+<details>
+<summary>Exact weights</summary>
+
+| Model | H-A (balanced) | H-B (behavior-weighted) |
+|---|---:|---:|
+| ALS | 0.35 | 0.50 |
+| Graph | 0.20 | 0.20 |
+| Category | 0.20 | 0.10 |
+| FP-Growth | 0.15 | 0.15 |
+| Popularity | 0.10 | 0.05 |
+| Sum | 1.00 | 1.00 |
+
+</details>
+
+### Gates and manifests
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/readme/assets/gate-phases-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/readme/assets/gate-phases-light.svg">
+  <img alt="Gate pipeline in five phases: Verify G0-G1, Data G2-G5, Model G6-G8 (focal), Evaluate G9-G11, Deliver G12." src=".github/readme/assets/gate-phases-light.svg" width="100%">
+</picture>
+
+The board above groups the thirteen ordered gates, G0 to G12, into five phases. G0 is a script (`scripts/g0_smoke.py`), G1 is built into the CLI, and phase handlers implement G2 to G12.
+
+Gates G1 to G12 write a manifest to `artifacts/runs/$RUN_ID/manifests/G<n>.json` with the run id, the config and source SHA-256, prerequisite evidence digests and timing. G0 writes environment evidence (versions, hardware, GraphFrames JAR hashes and runtime tests) to its manifest at the same path, and the fingerprint check does not apply to G0. A gate is blocked when an earlier passed manifest, other than G0, has a different config or source fingerprint. A passed gate is reused unless `--force` is given.
+
+`configs/project.yaml` fixes the source identity, seed, Spark settings, split rules and model parameters, and the configuration loader rejects changes to these binding values. Each published table records its row count, schema, file count, size and SHA-256.
+
+Tables are written to a temporary directory, read back to count their rows, and renamed into place. A table path without `_SUCCESS` is treated as an interrupted workspace and rebuilt.
+
+G12 is the final acceptance audit. It recomputes prior manifest and artifact fingerprints, reconstructs the frozen hybrid selection, verifies the official comparison matrix and this README, then publishes the delivery atomically and writes its success marker last.
+
+The repository holds no measured results, so this section describes the performance protocol only. G11 compares `local[1]` with `local[min(4, logical cores)]`, runs 1 warm-up and 3 measured runs per condition, and disables dataset caching. Its output is `artifacts/runs/$RUN_ID/performance/summary.json`.
+
+<details>
+<summary>Gate reference</summary>
 
 | Gate | Responsibility | Primary entry |
 |---|---|---|
-| G0 | Runtime, Spark, GraphFrames, Parquet, and checkpoint proof | `scripts/g0_smoke.py` |
-| G1 | Passing JUnit evidence and project command contract | `gate G1` |
+| G0 | Runtime proof: Parquet round trip, GraphFrames PageRank and WCC, durable checkpoint | `scripts/g0_smoke.py` |
+| G1 | Passing JUnit evidence and the project command contract | `gate G1` |
 | G2 | Parser and record-boundary contract | `gate G2` |
 | G3 | Deterministic Bronze-to-Gold smoke pipeline | `gate G3` |
 | G4 | Full-source ETL and canonical source counts | `gate G4` |
-| G5 | Deduplication, interaction aggregation, and quality profile | `gate G5` |
-| G6 | Temporal split, cohorts, k-core, and leakage checks | `gate G6` |
+| G5 | Deduplication, interaction aggregation and quality profile | `gate G5` |
+| G6 | Temporal split, cohorts, k-core and leakage checks | `gate G6` |
 | G7 | Five independent model outputs | `gate G7` |
-| G8 | Shared hybrid evidence and H-A/H-B rankings | `gate G8` |
+| G8 | Shared hybrid evidence and H-A and H-B rankings | `gate G8` |
 | G9 | Validation freeze and official evaluation | `gate G9` |
 | G10 | Spark-free dashboard exports and application contracts | `gate G10` |
 | G11 | Controlled `local[1]` versus bounded multi-core experiment | `gate G11` |
 | G12 | Independent acceptance audit and atomic delivery | `gate G12` |
 
-## Project Structure
+</details>
 
-```text
-.
-├── app/                         # Streamlit pages and bounded DuckDB access
-├── bin/amazon-rec               # Environment-enforcing command launcher
-├── configs/project.yaml         # Source, Spark, model, and experiment contract
-├── scripts/                     # Dataset analysis, G0 proof, and sharded tests
-├── src/amazon_recommender/
-│   ├── core/                    # Configuration, gates, manifests, paths, logging
-│   ├── ingestion/               # Delimiter framing, schemas, and strict parser
-│   ├── pipelines/               # Bronze/Silver/Gold transforms and atomic storage
-│   ├── quality/                 # Data profiling and quality-event taxonomy
-│   ├── features/                # Temporal split, cohorts, baskets, and profiles
-│   ├── models/                  # Five recommenders and hybrid rank fusion
-│   ├── evaluation/              # Ranking, coverage, and ALS prediction metrics
-│   ├── performance/             # Fixed workload and Spark event-log analysis
-│   └── phases/                  # G2–G12 gate implementations
-└── tests/                       # Unit and local Spark integration contracts
-```
+### Bounded serving
 
-## Running the Project
+The application is titled Catalog Observatory and has four pages under `app/`. Its UI copy is Turkish, while this README is English.
 
-### Prerequisites
+- **Home** (`Home.py`): scale, distributions, sparsity and quality events.
+- **Product and Graph Explorer** (`2_Product_and_Graph_Explorer.py`): product metadata, taxonomy, PageRank, degree, weak components and a bounded first-degree graph.
+- **Recommendation Lab** (`3_Recommendation_Lab.py`): customer, seed-product and category-onboarding recommendations with their evidence.
+- **Model and Experiment Comparison** (`4_Model_and_Experiment_Comparison.py`): ranking and coverage metrics, ALS prediction metrics, model runtimes, local Spark performance and reproducibility metadata.
 
-- Linux with `pyenv` and the `pyenv-virtualenv` plugin;
-- Python `3.13.1` in an environment named `bil401_env_1`;
-- OpenJDK `21.0.11` at `/usr/lib/jvm/java-21-openjdk-amd64`;
-- at least 20 GiB of free disk for source data, Parquet outputs, models, and
-  atomic publication workspaces;
-- the SNAP source at `Dataset/amazon-meta.txt` with SHA-256
-  `600135116a05b7ce2dcb7e842e892d663c6190a0567d00373e0c5c4f3c908f02`.
+<details>
+<summary>Serving bounds</summary>
 
-The dataset and generated run artifacts are intentionally kept outside version
-control.
+- DuckDB runs with 2 threads and a 384 MB memory limit.
+- Queries must start with `SELECT`, `WITH` or `DESCRIBE SELECT`, and user input is passed as bound parameters.
+- Detail reads return at most 500 rows, and recommendation lists at most 100 rows.
+- Bounded reads are cached for 600 seconds, in at most 512 entries.
+- Only run directories with a Spark `_SUCCESS` marker are served, and only allowlisted logical tables.
+- Recommendation Lab searches are limited to 20 customers and 30 categories, and its top-K slider runs from 1 to 50 in the customer section and from 1 to 30 in the seed-product and category sections, with a default of 10.
+- The dashboard needs gates G0 to G10 to have passed; G11 and G12 are not needed to serve it.
 
-### 1. Create the locked Python environment
+</details>
 
-```bash
-pyenv install -s 3.13.1
-pyenv prefix bil401_env_1 >/dev/null 2>&1 || \
-  pyenv virtualenv 3.13.1 bil401_env_1
+## Technology stack
 
-export PYENV_VERSION=bil401_env_1
-export PY="$(pyenv which python)"
-export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+| Layer | Technologies and role |
+|---|---|
+| Language and runtime | Python 3.13.1, Java 21.0.11 and Scala 2.13.16. Application logic in Python, on the JVM and Scala runtime that Spark needs |
+| Distributed processing | Apache Spark 4.0.0, PySpark and Spark SQL. Parsing, transformation, feature engineering, candidate generation and evaluation |
+| Machine learning | Spark MLlib. Explicit-feedback ALS and FP-Growth training |
+| Graph analytics | GraphFrames 0.12.1. PageRank, degrees, reciprocity and weakly connected components |
+| Analytical storage | Parquet with Snappy and PyArrow 25.0.0. Typed, compressed tables with fingerprinted artifacts |
+| Query layer | DuckDB 1.5.4. Bounded, read-only queries over completed Parquet exports |
+| Application UI | Streamlit 1.59.1 and Plotly 6.9.0. Four-page interactive analytics application |
+| Local helpers | pandas 2.3.0 and NetworkX 3.5. Bounded result shaping and small deterministic ego-graph layouts |
+| Testing | pytest 9.1.1 and pytest-cov 7.1.0. Unit, Spark integration and contract tests |
+| Configuration and automation | YAML, JSON, Make and Bash. Configuration, evidence manifests, repeatable commands and environment enforcement |
 
-"$PY" -m pip install -r requirements.lock -e .
-```
+## Quickstart
 
-### 2. Cache the GraphFrames runtime JARs
+Prerequisites:
 
-```bash
-mkdir -p .cache/ivy/jars
+- Linux with `pyenv` and the `pyenv-virtualenv` plugin.
+- Python 3.13.1 in an environment named `bil401_env_1`. The launcher refuses any other interpreter.
+- OpenJDK 21.0.11 at `/usr/lib/jvm/java-21-openjdk-amd64`. G0 records this Java version.
+- At least 15 GiB of total memory, the baseline that G12 checks in the G0 evidence.
+- At least 20 GiB of free disk for source data, Parquet outputs, models and publication workspaces.
+- The SNAP source at `Dataset/amazon-meta.txt`, with this SHA-256 digest:
 
-PYSPARK_PYTHON="$PY" \
-PYSPARK_DRIVER_PYTHON="$PY" \
-PYSPARK_SUBMIT_ARGS='--packages io.graphframes:graphframes-spark4_2.13:0.12.1 pyspark-shell' \
-"$PY" -c 'from pyspark.sql import SparkSession; SparkSession.builder.getOrCreate().stop()'
+  ```text
+  600135116a05b7ce2dcb7e842e892d663c6190a0567d00373e0c5c4f3c908f02
+  ```
 
-find "$HOME/.ivy2/jars" -maxdepth 1 -type f \
-  \( -name 'io.graphframes_*.jar' -o -name 'org.apache.datasketches_*.jar' \) \
-  -exec cp -n {} .cache/ivy/jars/ \;
-```
+The dataset and generated run artifacts stay out of version control.
 
-### 3. Create test evidence and a run identity
+Run the pipeline in this order:
 
-```bash
-export SOURCE8="$(sha256sum Dataset/amazon-meta.txt | cut -c1-8)"
-export RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$SOURCE8"
-export JUNIT="artifacts/runs/$RUN_ID/test-results/preflight.xml"
+1. Create the locked environment once and install the project. `make bootstrap` runs `pip install -r requirements.lock -e .`; it does not fetch the GraphFrames JARs.
 
-make test \
-  RUN_ID="$RUN_ID" \
-  TEST_JUNIT="$JUNIT" \
-  TEST_SHARD_DIR="artifacts/runs/$RUN_ID/test-results/shards"
-```
+   ```bash
+   pyenv install -s 3.13.1
+   pyenv prefix bil401_env_1 >/dev/null 2>&1 \
+     || pyenv virtualenv 3.13.1 bil401_env_1
+   export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+   make bootstrap
+   ```
 
-The sharded runner executes Spark-heavy test groups in separate processes,
-merges their JUnit files, and refuses to start beside another active project
-Spark process.
+2. Cache the GraphFrames runtime JARs in `.cache/ivy/jars`, which is not committed. The copy loop also copies the datasketches JARs, although no code references them.
 
-### 4. Establish G0 environment evidence
+   ```bash
+   PY="$(PYENV_VERSION=bil401_env_1 pyenv which python)"
+   mkdir -p .cache/ivy/jars
+   PYSPARK_PYTHON="$PY" PYSPARK_DRIVER_PYTHON="$PY" \
+   PYSPARK_SUBMIT_ARGS='--packages io.graphframes:graphframes-spark4_2.13:0.12.1 pyspark-shell' \
+   "$PY" -c 'from pyspark.sql import SparkSession; SparkSession.builder.getOrCreate().stop()'
+   find "$HOME/.ivy2/jars" -maxdepth 1 -type f \
+     \( -name 'io.graphframes_*.jar' -o -name 'org.apache.datasketches_*.jar' \) \
+     -exec cp -n {} .cache/ivy/jars/ \;
+   ```
 
-```bash
-export JARS="$(find .cache/ivy/jars -type f -name '*.jar' | sort | paste -sd, -)"
-export PYSPARK_SUBMIT_ARGS="--master local[2] --driver-memory 2g \
-  --conf spark.ui.enabled=false --jars $JARS pyspark-shell"
+3. Create the test evidence and the run id. This step runs only with the `bil401_env_1` interpreter that `scripts/run_tests_sharded.py` pins, so it does not run on other machines as written.
 
-JAVA_HOME="$JAVA_HOME" \
-PYSPARK_PYTHON="$PY" \
-PYSPARK_DRIVER_PYTHON="$PY" \
-"$PY" scripts/g0_smoke.py \
-  --output "artifacts/runs/$RUN_ID/manifests/G0.json"
-```
+   ```bash
+   export SOURCE8="$(sha256sum Dataset/amazon-meta.txt | cut -c1-8)"
+   export RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$SOURCE8"
+   export JUNIT="artifacts/runs/$RUN_ID/test-results/preflight.xml"
+   make test TEST_JUNIT="$JUNIT" \
+     TEST_SHARD_DIR="artifacts/runs/$RUN_ID/test-results/shards"
+   ```
 
-### 5. Run the ordered pipeline
+4. Record the G0 runtime proof with the Spark settings that `bin/amazon-rec` passes to Spark, using its default values. G12 requires the recorded driver memory to be `8g`.
 
-```bash
-for gate_number in {1..12}; do
-  ./bin/amazon-rec \
-    --run-id "$RUN_ID" \
-    gate "G${gate_number}" \
-    --evidence-file "$JUNIT" || exit 1
-done
-```
+   ```bash
+   export JARS="$(find .cache/ivy/jars -type f -name '*.jar' | sort | paste -sd, -)"
+   export SPARK_LOCAL_IP=127.0.0.1
+   export PYSPARK_SUBMIT_ARGS="--master local[*] --driver-memory 8g \
+     --driver-java-options=-Duser.timezone=UTC \
+     --conf spark.driver.host=127.0.0.1 \
+     --conf spark.driver.bindAddress=127.0.0.1 \
+     --conf spark.driver.maxResultSize=1g \
+     --conf spark.ui.enabled=false \
+     --conf spark.ui.showConsoleProgress=false \
+     --conf spark.task.cpus=4 \
+     --conf spark.memory.fraction=0.35 \
+     --conf spark.memory.storageFraction=0.30 \
+     --conf spark.sql.shuffle.partitions=64 \
+     --conf spark.sql.adaptive.enabled=true \
+     --conf spark.sql.files.maxPartitionBytes=134217728 \
+     --conf spark.sql.parquet.compression.codec=snappy \
+     --conf spark.sql.session.timeZone=UTC \
+     --jars $JARS pyspark-shell"
+   JAVA_HOME="$JAVA_HOME" PYSPARK_PYTHON="$PY" PYSPARK_DRIVER_PYTHON="$PY" \
+     "$PY" scripts/g0_smoke.py --output "artifacts/runs/$RUN_ID/manifests/G0.json"
+   ```
 
-Inspect the chain at any time:
+5. Run gates G1 to G12 in order, then print the chain status. Each gate receives the JUnit evidence file, and the loop stops at the first gate that does not pass.
 
-```bash
-./bin/amazon-rec --run-id "$RUN_ID" status
-```
+   ```bash
+   for gate_number in {1..12}; do
+     ./bin/amazon-rec --run-id "$RUN_ID" gate "G${gate_number}" \
+       --evidence-file "$JUNIT" || break
+   done
+   ./bin/amazon-rec --run-id "$RUN_ID" status
+   ```
 
-### 6. Open the dashboard
+6. Open the dashboard once G0 to G10 have passed. Streamlit uses its default port, 8501.
+
+   ```bash
+   ./bin/amazon-rec --run-id "$RUN_ID" dashboard
+   ```
+
+<details>
+<summary>Pin the dashboard address</summary>
+
+With these variables set, the application is served at `http://127.0.0.1:8501`.
 
 ```bash
 STREAMLIT_SERVER_HEADLESS=true \
@@ -381,46 +320,91 @@ STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
 ./bin/amazon-rec --run-id "$RUN_ID" dashboard
 ```
 
-The application is then available at `http://127.0.0.1:8501`.
+</details>
 
-## Quality and Verification
+Notes:
 
-The repository's pytest collection discovers **184 test cases** across unit and
-local Spark integration suites. The suite covers:
+- Run ids must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`. Always pass `--run-id`; the CLI's built-in default is a dated run id that is not a current run.
+- Exit code 3 means a gate is blocked by missing or incompatible prerequisites, and exit code 1 means it failed.
+- A passed gate is reused unless `--force` is given before the subcommand.
+- The `make` shortcuts do not pass `--evidence-file`, so this guide calls the CLI directly.
 
-- CRLF/LF framing, oversized Hadoop records, parser quarantine, and explicit
-  schemas;
-- deterministic cleaning, temporal splitting, leakage prevention, and stable
-  sampling;
-- hand-calculated Bayesian, association-rule, graph, category, RRF, and
-  ranking-metric examples;
-- candidate filtering, fixed model parameters, stable tie-breaking, and hybrid
-  budget enforcement;
-- interruption-safe Parquet publication and run-path traversal protection;
-- parameterized DuckDB search, bounded NetworkX layouts, and proof that the
-  Streamlit application does not import PySpark;
-- G9 selection freezing, G11 trial reconciliation, G12 fingerprint verification,
-  and final delivery publication.
+<details>
+<summary>Project layout</summary>
 
-Official outputs remain machine-readable:
+```text
+.
+├── .github/readme/              # README visual spec and generated SVG assets
+├── .gitignore                   # Ignored data, run artifacts and local state
+├── .streamlit/                  # Streamlit theme configuration
+├── app/                         # Streamlit pages and bounded DuckDB access
+├── bin/amazon-rec               # Environment-enforcing command launcher
+├── configs/project.yaml         # Source, Spark, model and experiment contract
+├── LICENSE                      # MIT License
+├── Makefile                     # Bootstrap, test and shortcut targets
+├── pyproject.toml               # Package metadata and pinned versions
+├── requirements.lock            # Locked runtime and test environment
+├── scripts/                     # Dataset analysis, G0 proof and sharded tests
+├── src/amazon_recommender/
+│   ├── cli.py                   # Command interface for gates, aliases and status
+│   ├── gate_handlers.py         # Registry of G2 to G12 phase handlers
+│   ├── core/                    # Configuration, gates, manifests and paths
+│   ├── ingestion/               # Delimiter framing, schemas and strict parser
+│   ├── pipelines/               # Bronze/Silver/Gold transforms and atomic storage
+│   ├── quality/                 # Data profiling and quality-event taxonomy
+│   ├── features/                # Temporal split, cohorts, baskets and profiles
+│   ├── models/                  # Five recommenders and hybrid rank fusion
+│   ├── evaluation/              # Ranking, coverage and ALS prediction metrics
+│   ├── performance/             # Fixed workload and experiment protocol
+│   └── phases/                  # G2-G12 gate implementations
+└── tests/                       # Unit and local Spark integration contracts
+```
 
-- manifests: `artifacts/runs/$RUN_ID/manifests/G0.json` through `G12.json`;
-- model comparison:
-  `artifacts/runs/$RUN_ID/data/g9/official_test_comparison/`;
-- selection evidence:
-  `artifacts/runs/$RUN_ID/data/g9/selected_hybrid/`;
-- performance evidence: `artifacts/runs/$RUN_ID/performance/summary.json`;
-- accepted delivery: `artifacts/runs/$RUN_ID/delivery/`.
+</details>
 
-These artifacts allow a reviewer to distinguish configuration, measured output,
-and presentation text instead of relying on manually copied metrics.
+## Testing and verification
+
+The suite contains 184 test cases in 31 test modules, across unit and local Spark integration tests. The sharded runner executes 12 sequential shards, 10 of them Spark, and merges their JUnit fragments with `scripts/merge_junit.py`. It refuses to start while another project Spark process is active.
+
+Official outputs are written under `artifacts/runs/$RUN_ID/`:
+
+- Gate manifests G0 to G12: `manifests/G0.json` through `manifests/G12.json`
+- Model comparison: `data/g9/official_test_comparison/`
+- Selection evidence: `data/g9/selected_hybrid/`
+- Performance evidence: `performance/summary.json`
+- Accepted delivery: `delivery/`
+
+<details>
+<summary>Test coverage areas</summary>
+
+- CRLF and LF record framing, and mixed line endings fail closed.
+- Hadoop split boundaries at 128 MiB.
+- Hand-calculated association rules, category math and ranking metrics.
+- Traversal-safe run ids: unsafe values such as `../escape`, absolute paths, spaces and empty ids are rejected.
+- Parameterized, bounded DuckDB search.
+- NetworkX layouts that are deterministic and never exceed 50 nodes.
+- The Streamlit application never imports PySpark.
+- An interrupted G11 run reuses only atomically completed trials.
+- Canonical source counts: G5 accepts only the exact canonical counts, and the quality-event taxonomy contains every binding event once.
+- Temporal split and leakage checks: G6 invariants reject held-out leakage and missing held-out users.
+- Stable, seeded sampling of the smoke set.
+- ALS recommendations are raw depth 200, then active and unseen items only, without fallback.
+- Interruption-safe table publication: incomplete temporary publications are removed.
+- Stable hybrid tie-breaking: all four deterministic ranking keys are applied.
+- Validation-only selection: strict NDCG@10 threshold, then coverage, then H-A.
+- Validation-only G9 selection, recomputed from frozen Parquet artifacts.
+- G8 experiment budget: no refit, and a third variant is rejected.
+- G12 recomputes every manifest digest and rejects tampered manifests and README placeholders.
+- Binding configuration rejects parameter changes.
+- Registered pytest markers: `unit`, `integration` and `slow`. `e2e` and `full_data` are registered but not yet applied.
+
+</details>
+
+## Scope and limitations
+
+- The dataset and run artifacts are not in the repository, so the README shows configuration values and the counts that the gates assert, and no measured ranking results.
+- The test runner and the configuration pin one interpreter path, so step 3 of the Quickstart runs only where that interpreter exists.
 
 ## License
 
-The source code is available under the [MIT License](LICENSE). The SNAP dataset
-retains its own source and citation terms.
-
-This project demonstrates an end-to-end approach to data-intensive recommendation
-engineering: distributed ingestion, explicit data contracts, complementary model
-families, deterministic ranking, reproducible evaluation, failure-aware artifact
-publication, and a carefully bounded analytical user experience.
+The source code is available under the [MIT License](LICENSE). Copyright (c) 2026 Arda Tuz. The SNAP dataset retains its own source and citation terms; see the [SNAP dataset page](https://snap.stanford.edu/data/amazon-meta.html).

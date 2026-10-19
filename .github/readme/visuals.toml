@@ -1,0 +1,53 @@
+# README visuals for this repository, generated with gbv (GitHub Better Visuals).
+# Rebuild: uv run --project <gbv toolkit dir> gbv build .github/readme/visuals.toml
+# Every SVG under assets/ is generated from this file and the sources it names.
+
+[meta]
+brand = "observatory"
+out = "assets"
+
+[[asset]]
+name = "hero"
+type = "repo-hero"
+alt = "Spark pipeline: 548,552 Amazon products, five recommenders and two hybrid rankings (H-A and H-B), one chosen on validation."
+eyebrow = "Gate-controlled Spark recommendation pipeline"
+title = "Amazon Product Recommendation Using Spark"
+tagline = "Turns Amazon product records into five recommenders, one validation-selected hybrid ranking and a four-page Streamlit app, with every stage gated by evidence."
+motif = "fusion"
+lanes = 5
+
+[[asset]]
+name = "scale-stats"
+type = "stats"
+alt = "Four counts asserted by the G4 and G5 gates: 548,552 product records, 7.59M physical reviews, 1.56M distinct customers and 1.23M similar-product edges with both ends in the catalog."
+items = [
+  { value = "548,552", label = "product records", accent = true },
+  { value = "7.59M", label = "physical reviews" },
+  { value = "1.56M", label = "distinct customers" },
+  { value = "1.23M", label = "similar-product edges" },
+]
+
+[[asset]]
+name = "architecture-flow"
+type = "flow"
+alt = "Architecture: Spark ingestion, Bronze, Silver and Gold tables, five recommenders, H-A and H-B fusion, evaluation, then DuckDB and the Streamlit app."
+source = "diagrams/architecture-flow.json"
+width = 838
+
+[[asset]]
+name = "gate-phases"
+type = "phases"
+alt = "Gate pipeline in five phases: Verify G0-G1, Data G2-G5, Model G6-G8 (focal), Evaluate G9-G11, Deliver G12."
+phases = [
+  { label = "Verify", steps = [["G0", "Runtime proof"], ["G1", "Test evidence"]] },
+  { label = "Data", steps = [["G2", "Parser checks"], ["G3", "Smoke run"], ["G4", "Full ETL"], ["G5", "Quality profile"]] },
+  { label = "Model", focal = true, steps = [["G6", "Temporal split"], ["G7", "Five models"], ["G8", "Hybrid fusion"]] },
+  { label = "Evaluate", steps = [["G9", "Evaluation"], ["G10", "Exports"], ["G11", "Performance"]] },
+  { label = "Deliver", steps = [["G12", "Final audit"]] },
+]
+
+[[asset]]
+name = "hybrid-weights"
+type = "vega"
+alt = "Grouped horizontal bars of the hybrid rank-fusion weights for H-A and H-B: ALS 0.35 and 0.50, graph 0.20 and 0.20, category 0.20 and 0.10, FP-Growth 0.15 and 0.15, popularity 0.10 and 0.05; each variant sums to 1.00."
+source = "charts/hybrid-weights.vl.json"
